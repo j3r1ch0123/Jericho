@@ -3,6 +3,10 @@ import requests
 import string
 import argparse
 
+# TODO:
+#   Add a function to remove the apostrophe in the extraction payloads when not needed
+#   Add database and table enumeration
+
 charset = string.ascii_letters + string.digits + string.punctuation
 
 headers = {
